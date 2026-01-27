@@ -369,7 +369,7 @@ ${post.notes ? `### Notes\n${post.notes}` : ''}
     : formData.content.length
   const channelConfig = CHANNELS[formData.channel as keyof typeof CHANNELS]
   const charLimit = channelConfig?.charLimit
-  const isOverLimit = charLimit && !formData.is_thread && charCount > charLimit
+  const isOverLimit = Boolean(charLimit && !formData.is_thread && charCount > charLimit)
   const ChannelIcon = channelConfig?.icon || FileText
 
   // Stats
