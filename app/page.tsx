@@ -34,19 +34,6 @@ const STATUS_CONFIG = {
   published: { label: 'Published', color: 'bg-emerald-900/50 text-emerald-300', dot: 'bg-emerald-400' }
 }
 
-const EVM_TOPICS = [
-  { id: 1, title: "The End of the Retrieval Era", hook: "We are moving from a world where humans search for information to a world where agents execute on intent—transforming the Internet from a library into a workforce.", pillar: "thought-leadership" },
-  { id: 2, title: "Why Your AI Needs a Wallet, Not a Subscription", hook: "To move beyond 'chatbots,' AI must become an economic actor capable of negotiating fees and paying for its own compute on sovereign rails.", pillar: "industry-insights" },
-  { id: 3, title: "Trustware: The Safety Rail for Autonomous Software", hook: "Closed 'black box' AI is too risky for finance; Ethereum is the necessary substrate for verifiable agent identity and reputation.", pillar: "educational" },
-  { id: 4, title: "The Machine-to-Machine (M2M) Economy", hook: "Why the future of commerce isn't B2B or B2C, but Agent-to-Agent (A2A), where software consumes data and transactions at a scale humans can't match.", pillar: "thought-leadership" },
-  { id: 5, title: "Death of the UI: Protocol-First Design", hook: "As agents become the primary consumers of the web, the 'Front End' will disappear in favor of APIs, SDKs, and command-line coordination.", pillar: "industry-insights" },
-  { id: 6, title: "The Agent Substrate: Ethereum for AI Payment Rails", hook: "Moving past 'crypto' labels to position blockchain as the un-censorable payment and coordination layer required for autonomous agents.", pillar: "educational" },
-  { id: 7, title: "The 5-Year Agentic Forecast", hook: "A visionary roadmap predicting the shift from 'tools' to 'digital colleagues' and how 'Agentic Headcount' will define the next decade.", pillar: "thought-leadership" },
-  { id: 8, title: "Markets Over Benchmarks: Solving AI Hallucination", hook: "Why synthetic evals fail and how decentralized prediction markets will create a real-world 'challenge layer' for AI intelligence.", pillar: "industry-insights" },
-  { id: 9, title: "Sovereign Intelligence vs. The API Tax", hook: "A critique of closed AI 'gatekeepers' and the argument for open-source Edge OSS that allows institutions to own their intelligence.", pillar: "thought-leadership" },
-  { id: 10, title: "The AI-Native Studio: A New Blueprint", hook: "How EVM Systems is dogfooding its own agentic operations to build a faster, leaner, and more autonomous venture incubator.", pillar: "personal-brand" }
-]
-
 type Post = {
   id: string
   title: string
@@ -92,6 +79,7 @@ export default function Home() {
   const [genStep, setGenStep] = useState(1)
   const [genTopic, setGenTopic] = useState('')
   const [genHook, setGenHook] = useState('')
+  const [genDraft, setGenDraft] = useState('') // New: optional content draft
   const [genPillar, setGenPillar] = useState('thought-leadership')
   const [genBlog, setGenBlog] = useState('')
   const [genThread, setGenThread] = useState<string[]>([])
@@ -100,6 +88,7 @@ export default function Home() {
   const [generating, setGenerating] = useState(false)
   const [genStatus, setGenStatus] = useState('')
   const [scheduleDate, setScheduleDate] = useState('')
+  const [optimizeAttempts, setOptimizeAttempts] = useState(0)
   
   const supabase = createClient()
 
@@ -135,25 +124,36 @@ export default function Home() {
   const generateBlog = async () => {
     setGenerating(true)
     setGenStatus('Writing blog post...')
+    setOptimizeAttempts(0)
+    
     try {
-      const res = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'generate_blog', topic: genTopic, hook: genHook })
-      })
-      const data = await res.json()
-      if (data.result) {
-        setGenBlog(data.result)
+      // If user provided a draft, use it directly
+      if (genDraft.trim()) {
+        setGenBlog(genDraft)
         setGenStep(3)
-        await scoreContent(data.result)
+        await scoreAndOptimize(genDraft)
+      } else {
+        // Generate new blog
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'generate_blog', topic: genTopic, hook: genHook })
+        })
+        const data = await res.json()
+        if (data.result) {
+          setGenBlog(data.result)
+          setGenStep(3)
+          await scoreAndOptimize(data.result)
+        }
       }
     } catch (e) { console.error(e) }
     setGenerating(false)
     setGenStatus('')
   }
 
-  const scoreContent = async (content: string) => {
-    setGenStatus('Scoring virality...')
+  const scoreAndOptimize = async (content: string, attempt = 0) => {
+    setGenStatus(`Scoring virality... ${attempt > 0 ? `(Optimization attempt ${attempt})` : ''}`)
+    
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
@@ -161,7 +161,37 @@ export default function Home() {
         body: JSON.stringify({ action: 'score_virality', topic: genTopic, hook: genHook, content, channel: 'paragraph' })
       })
       const data = await res.json()
-      if (data.result) setGenScore(data.result)
+      
+      if (data.result) {
+        setGenScore(data.result)
+        
+        // If score is below 95% and we haven't tried too many times, optimize
+        if (data.result.overall < 95 && attempt < 3) {
+          setGenStatus(`Score: ${data.result.overall}% — Optimizing for 95%+...`)
+          setOptimizeAttempts(attempt + 1)
+          
+          // Generate optimized version
+          const optimizeRes = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              action: 'optimize_content', 
+              topic: genTopic, 
+              hook: genHook, 
+              content,
+              feedback: data.result.feedback,
+              currentScore: data.result.overall
+            })
+          })
+          const optimizeData = await optimizeRes.json()
+          
+          if (optimizeData.result) {
+            setGenBlog(optimizeData.result)
+            // Re-score the optimized version
+            await scoreAndOptimize(optimizeData.result, attempt + 1)
+          }
+        }
+      }
     } catch (e) { console.error(e) }
     setGenStatus('')
   }
@@ -237,6 +267,7 @@ export default function Home() {
     setGenStep(1)
     setGenTopic('')
     setGenHook('')
+    setGenDraft('')
     setGenPillar('thought-leadership')
     setGenBlog('')
     setGenThread([])
@@ -244,18 +275,13 @@ export default function Home() {
     setGenScore(null)
     setScheduleDate('')
     setGenStatus('')
-  }
-
-  const selectTopic = (t: typeof EVM_TOPICS[0]) => {
-    setGenTopic(t.title)
-    setGenHook(t.hook)
-    setGenPillar(t.pillar)
+    setOptimizeAttempts(0)
   }
 
   // Helpers
-  const getScoreColor = (s: number) => s >= 80 ? 'text-emerald-400' : s >= 60 ? 'text-amber-400' : s >= 40 ? 'text-orange-400' : 'text-red-400'
-  const getScoreBg = (s: number) => s >= 80 ? 'bg-emerald-500/20 border-emerald-500/50' : s >= 60 ? 'bg-amber-500/20 border-amber-500/50' : s >= 40 ? 'bg-orange-500/20 border-orange-500/50' : 'bg-red-500/20 border-red-500/50'
-  const getScoreLabel = (s: number) => s >= 80 ? '🔥 High Viral Potential' : s >= 60 ? '📈 Good Engagement' : s >= 40 ? '⚡ Moderate Reach' : '🎯 Needs Work'
+  const getScoreColor = (s: number) => s >= 95 ? 'text-emerald-400' : s >= 80 ? 'text-lime-400' : s >= 60 ? 'text-amber-400' : s >= 40 ? 'text-orange-400' : 'text-red-400'
+  const getScoreBg = (s: number) => s >= 95 ? 'bg-emerald-500/20 border-emerald-500/50' : s >= 80 ? 'bg-lime-500/20 border-lime-500/50' : s >= 60 ? 'bg-amber-500/20 border-amber-500/50' : s >= 40 ? 'bg-orange-500/20 border-orange-500/50' : 'bg-red-500/20 border-red-500/50'
+  const getScoreLabel = (s: number) => s >= 95 ? '🔥 Viral Ready!' : s >= 80 ? '📈 High Potential' : s >= 60 ? '⚡ Good Engagement' : s >= 40 ? '📊 Moderate Reach' : '🎯 Needs Work'
 
   const getDays = (date: Date) => {
     const y = date.getFullYear(), m = date.getMonth()
@@ -495,7 +521,7 @@ export default function Home() {
                 <div className="p-2 rounded-lg bg-gradient-to-r from-violet-600 to-cyan-600"><Wand2 className="w-5 h-5" /></div>
                 <div>
                   <h2 className="text-lg font-semibold">AI Content Generator</h2>
-                  <p className="text-xs text-zinc-500">Topic → Blog → Score → Waterfall → Schedule</p>
+                  <p className="text-xs text-zinc-500">Topic → Blog → Score (95%+) → Waterfall → Schedule</p>
                 </div>
               </div>
               <button onClick={resetGenerator} className="p-2 hover:bg-zinc-800 rounded-lg"><X className="w-5 h-5" /></button>
@@ -504,7 +530,7 @@ export default function Home() {
             {/* Progress */}
             <div className="px-6 py-4 border-b border-zinc-800">
               <div className="flex items-center justify-between">
-                {[{ s: 1, l: 'Topic' }, { s: 2, l: 'Generate' }, { s: 3, l: 'Review & Score' }, { s: 4, l: 'Waterfall' }, { s: 5, l: 'Schedule' }].map((x, i) => (
+                {[{ s: 1, l: 'Input' }, { s: 2, l: 'Generate' }, { s: 3, l: 'Score & Optimize' }, { s: 4, l: 'Waterfall' }, { s: 5, l: 'Schedule' }].map((x, i) => (
                   <div key={x.s} className="flex items-center">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${genStep >= x.s ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-500'}`}>
                       {genStep > x.s ? <Check className="w-4 h-4" /> : x.s}
@@ -517,37 +543,47 @@ export default function Home() {
             </div>
 
             <div className="p-6">
-              {/* Step 1: Topic */}
+              {/* Step 1: Input */}
               {genStep === 1 && (
-                <div className="space-y-6">
+                <div className="space-y-6 max-w-2xl mx-auto">
                   <div>
-                    <h3 className="font-medium mb-4">Select from Your Topics</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[280px] overflow-y-auto">
-                      {EVM_TOPICS.map(t => (
-                        <button key={t.id} onClick={() => selectTopic(t)} className={`text-left p-3 rounded-lg border transition-all ${genTopic === t.title ? 'border-violet-500 bg-violet-500/10' : 'border-zinc-700 hover:border-zinc-600'}`}>
-                          <div className="text-xs text-zinc-500 mb-1">#{t.id}</div>
-                          <div className="font-medium text-sm">{t.title}</div>
-                        </button>
-                      ))}
-                    </div>
+                    <label className="block text-sm text-zinc-400 mb-2">Topic / Title *</label>
+                    <input 
+                      type="text" 
+                      value={genTopic} 
+                      onChange={e => setGenTopic(e.target.value)} 
+                      className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-lg" 
+                      placeholder="e.g., The End of the Retrieval Era" 
+                    />
                   </div>
-                  <div className="border-t border-zinc-800 pt-6 space-y-4">
-                    <h3 className="font-medium">Or Enter Custom Topic</h3>
-                    <div>
-                      <label className="block text-sm text-zinc-400 mb-2">Topic / Title</label>
-                      <input type="text" value={genTopic} onChange={e => setGenTopic(e.target.value)} className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl" placeholder="The End of the Retrieval Era" />
-                    </div>
-                    <div>
-                      <label className="block text-sm text-zinc-400 mb-2">Hook / Log Line</label>
-                      <textarea value={genHook} onChange={e => setGenHook(e.target.value)} rows={2} className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl" placeholder="The one-line summary that grabs attention..." />
-                    </div>
-                    <div>
-                      <label className="block text-sm text-zinc-400 mb-2">Content Pillar</label>
-                      <div className="flex flex-wrap gap-2">
-                        {CONTENT_PILLARS.map(p => (
-                          <button key={p.id} type="button" onClick={() => setGenPillar(p.id)} className={`px-3 py-1.5 rounded-lg text-sm ${genPillar === p.id ? `${p.color} text-white` : 'bg-zinc-800 text-zinc-400'}`}>{p.icon} {p.name}</button>
-                        ))}
-                      </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Hook / Log Line *</label>
+                    <textarea 
+                      value={genHook} 
+                      onChange={e => setGenHook(e.target.value)} 
+                      rows={2} 
+                      className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl" 
+                      placeholder="The one-sentence hook that grabs attention..." 
+                    />
+                    <p className="text-xs text-zinc-500 mt-1">This becomes your thread opener and LinkedIn hook</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Content Draft (optional)</label>
+                    <textarea 
+                      value={genDraft} 
+                      onChange={e => setGenDraft(e.target.value)} 
+                      rows={6} 
+                      className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-sm" 
+                      placeholder="Paste your existing blog/article here if you have one. Leave empty to generate from scratch." 
+                    />
+                    <p className="text-xs text-zinc-500 mt-1">If provided, we'll optimize this instead of generating new content</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-400 mb-2">Content Pillar</label>
+                    <div className="flex flex-wrap gap-2">
+                      {CONTENT_PILLARS.map(p => (
+                        <button key={p.id} type="button" onClick={() => setGenPillar(p.id)} className={`px-3 py-1.5 rounded-lg text-sm ${genPillar === p.id ? `${p.color} text-white` : 'bg-zinc-800 text-zinc-400'}`}>{p.icon} {p.name}</button>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -567,7 +603,10 @@ export default function Home() {
                 <div className="grid lg:grid-cols-3 gap-6">
                   <div className="lg:col-span-2 space-y-4">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-medium">Generated Blog</h3>
+                      <h3 className="font-medium">
+                        {genDraft ? 'Your Content (Optimized)' : 'Generated Blog'}
+                        {optimizeAttempts > 0 && <span className="text-xs text-zinc-500 ml-2">(Optimized {optimizeAttempts}x)</span>}
+                      </h3>
                       <button onClick={() => copyText(genBlog, 'blog')} className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1"><Copy className="w-3 h-3" /> Copy</button>
                     </div>
                     <textarea value={genBlog} onChange={e => setGenBlog(e.target.value)} rows={18} className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-xl text-sm font-mono" />
@@ -579,10 +618,11 @@ export default function Home() {
                           <div className="text-center">
                             <div className="text-5xl font-bold mb-1"><span className={getScoreColor(genScore.overall)}>{genScore.overall}</span><span className="text-xl text-zinc-500">%</span></div>
                             <p className="text-sm">{getScoreLabel(genScore.overall)}</p>
+                            {genScore.overall >= 95 && <p className="text-xs text-emerald-400 mt-2">✓ Ready for viral distribution</p>}
                           </div>
                         </div>
                         <div className="p-4 bg-zinc-800/50 rounded-xl">
-                          <h4 className="font-medium mb-3 text-sm">Breakdown</h4>
+                          <h4 className="font-medium mb-3 text-sm">X Algorithm Score Breakdown</h4>
                           <div className="space-y-2">
                             {Object.entries(genScore.scores || {}).map(([k, v]) => (
                               <div key={k} className="flex items-center justify-between text-xs">
@@ -592,11 +632,19 @@ export default function Home() {
                             ))}
                           </div>
                         </div>
-                        {genScore.feedback?.length > 0 && (
+                        {genScore.feedback?.length > 0 && genScore.overall < 95 && (
                           <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
-                            <h4 className="font-medium mb-2 text-sm flex items-center gap-2"><AlertCircle className="w-4 h-4 text-amber-400" /> Tips</h4>
+                            <h4 className="font-medium mb-2 text-sm flex items-center gap-2"><AlertCircle className="w-4 h-4 text-amber-400" /> Optimizing...</h4>
                             <ul className="text-sm text-zinc-300 space-y-1">
                               {genScore.feedback.map((f: string, i: number) => <li key={i}>• {f}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                        {genScore.overall >= 95 && genScore.strengths?.length > 0 && (
+                          <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+                            <h4 className="font-medium mb-2 text-sm flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Strengths</h4>
+                            <ul className="text-sm text-zinc-300 space-y-1">
+                              {genScore.strengths.map((s: string, i: number) => <li key={i}>• {s}</li>)}
                             </ul>
                           </div>
                         )}
@@ -659,11 +707,11 @@ export default function Home() {
                 {genScore && genStep >= 3 && <span className={`px-3 py-1 rounded-full text-sm border ${getScoreBg(genScore.overall)}`}><Flame className="w-3 h-3 inline mr-1" />{genScore.overall}%</span>}
                 {genStep === 1 && (
                   <button onClick={() => { setGenStep(2); generateBlog() }} disabled={!genTopic || !genHook || generating} className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-violet-600 to-cyan-600 rounded-xl font-medium disabled:opacity-50">
-                    Generate Blog <ArrowRight className="w-4 h-4" />
+                    {genDraft ? 'Optimize Content' : 'Generate Blog'} <ArrowRight className="w-4 h-4" />
                   </button>
                 )}
                 {genStep === 3 && (
-                  <button onClick={() => { setGenStep(4); generateWaterfall() }} disabled={generating} className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-violet-600 to-cyan-600 rounded-xl font-medium disabled:opacity-50">
+                  <button onClick={() => { setGenStep(4); generateWaterfall() }} disabled={generating || (genScore?.overall < 95)} className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-violet-600 to-cyan-600 rounded-xl font-medium disabled:opacity-50">
                     {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />} Generate Waterfall
                   </button>
                 )}
@@ -727,4 +775,3 @@ export default function Home() {
     </div>
   )
 }
-
