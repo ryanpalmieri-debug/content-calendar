@@ -32,7 +32,11 @@ export async function GET(request: Request) {
     if (!error) {
       return NextResponse.redirect(`${origin}${next}`)
     }
+    
+    // Log error and redirect home instead of error page
+    console.error('Auth error:', error)
   }
 
-  return NextResponse.redirect(`${origin}/auth/auth-code-error`)
+  // Redirect to home page instead of non-existent error page
+  return NextResponse.redirect(origin)
 }
