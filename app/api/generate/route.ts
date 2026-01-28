@@ -4,7 +4,7 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
 export async function POST(request: NextRequest) {
   try {
-    const { action, topic, hook, content, channel, feedback, currentScore } = await request.json()
+    const { action, topic, hook, content, channel, feedback, currentScore, brainDump, contentType } = await request.json()
 
     if (!ANTHROPIC_API_KEY) {
       return NextResponse.json({ error: 'API key not configured' }, { status: 500 })
@@ -13,7 +13,40 @@ export async function POST(request: NextRequest) {
     let prompt = ''
     let systemPrompt = ''
 
-    if (action === 'generate_blog') {
+    if (action === 'process_braindump') {
+      systemPrompt = `You are an expert content strategist who extracts actionable content ideas from raw brainstorming notes. You identify themes, key insights, and potential hooks from messy, unstructured text.`
+
+      prompt = `Process this raw brain dump from a content planning session and extract structured content ideas:
+
+RAW BRAIN DUMP:
+${brainDump}
+
+Extract and organize into content ideas. For each idea, provide:
+1. A clear topic/title
+2. A compelling hook (one sentence that grabs attention)
+3. Key points to cover
+4. Suggested content type (engagement, thread, supporting, blog, roundup)
+5. Suggested pillar (thought-leadership, industry-insights, personal-brand, engagement, promotional, educational)
+
+Respond in this exact JSON format:
+{
+  "ideas": [
+    {
+      "topic": "Clear topic title",
+      "hook": "One sentence hook that grabs attention",
+      "keyPoints": ["point 1", "point 2", "point 3"],
+      "contentType": "thread|blog|engagement|supporting|roundup",
+      "pillar": "thought-leadership|industry-insights|personal-brand|engagement|promotional|educational",
+      "priority": "high|medium|low"
+    }
+  ],
+  "themes": ["theme 1", "theme 2"],
+  "weeklyAngle": "Suggested overarching theme for the week"
+}
+
+Only output the JSON, nothing else.`
+
+    } else if (action === 'generate_blog') {
       systemPrompt = `You are an expert content writer specializing in Web3, AI, and technology thought leadership. You write for sophisticated audiences who appreciate nuanced analysis and bold perspectives. Your style is clear and direct, uses concrete examples, balances technical depth with accessibility, and writes in a confident, authoritative voice.`
 
       prompt = `Write a long-form blog post for Paragraph (a Web3 publishing platform) on the following topic:
@@ -36,57 +69,36 @@ Write the full blog post now. Use markdown formatting with ## for headers.`
       systemPrompt = `You are an expert Twitter/X thread writer who creates viral content optimized for the X "For You" feed algorithm.
 
 X ALGORITHM SCORING (from open-sourced code):
-The algorithm predicts engagement probabilities and combines them with weights:
 Final Score = Σ (weight × P(action))
 
-POSITIVE WEIGHT ACTIONS (content should maximize these):
-- P(reply) — HIGH WEIGHT — replies signal deep engagement
-- P(repost) — HIGH WEIGHT — amplification and endorsement
-- P(quote) — HIGH WEIGHT — engagement + original take
-- P(favorite) — MEDIUM WEIGHT — basic approval
-- P(dwell) — MEDIUM WEIGHT — time spent reading
-- P(click) — MEDIUM WEIGHT — curiosity
-- P(follow_author) — MEDIUM WEIGHT — conversion
+POSITIVE WEIGHT ACTIONS:
+- P(reply) — HIGH WEIGHT
+- P(repost) — HIGH WEIGHT
+- P(quote) — HIGH WEIGHT
+- P(favorite) — MEDIUM WEIGHT
+- P(dwell) — MEDIUM WEIGHT
 
-NEGATIVE WEIGHT ACTIONS (content should minimize these):
+NEGATIVE WEIGHT ACTIONS:
 - P(not_interested) — penalizes irrelevant content
 - P(block_author) — penalizes offensive content
-- P(mute_author) — penalizes annoying content
-- P(report) — heavily penalizes policy violations
+- P(mute_author) — penalizes annoying content`
 
-Your threads must MAXIMIZE reply + repost + quote probability while MINIMIZING not_interested + block signals.`
-
-      prompt = `Convert this blog content into a VIRAL Twitter/X thread optimized for the X For You algorithm:
+      prompt = `Convert this blog content into a VIRAL Twitter/X thread:
 
 TITLE: ${topic}
 HOOK: ${hook}
 CONTENT:
 ${content}
 
-Create a 6-8 tweet thread that MAXIMIZES:
-1. P(reply) — include controversial takes, questions, challenges that DEMAND responses
-2. P(repost) — make insights so valuable people must share them
-3. P(quote) — leave room for people to add their own take
-4. P(dwell) — each tweet should take 5+ seconds to fully process
-5. P(follow) — demonstrate unique expertise worth following
+Create a 6-8 tweet thread that MAXIMIZES reply, repost, and quote probability.
 
-While MINIMIZING:
-- P(not_interested) — stay relevant to Web3/AI audience
-- P(block/mute) — avoid being annoying or spammy
-
-THREAD STRUCTURE:
-- Tweet 1: Scroll-stopping hook (controversial/counterintuitive)
-- Tweets 2-5: Key insights (each should be reply-worthy)
-- Tweet 6: Question or challenge to drive replies
-- Tweet 7-8: CTA + link
-
-Format your response as a JSON array of strings, each string being one tweet (max 280 chars each):
+Format as JSON array:
 ["tweet 1", "tweet 2", ...]
 
 Only output the JSON array, nothing else.`
 
     } else if (action === 'generate_linkedin') {
-      systemPrompt = `You are an expert LinkedIn content creator who writes viral posts for tech executives and thought leaders. Your posts open with bold attention-grabbing lines, use strategic formatting, and end with engagement questions.`
+      systemPrompt = `You are an expert LinkedIn content creator who writes viral posts for tech executives and thought leaders.`
 
       prompt = `Convert this blog content into a LinkedIn post:
 
@@ -95,23 +107,77 @@ HOOK: ${hook}
 CONTENT:
 ${content}
 
-Create a LinkedIn post that:
-1. Opens with the hook or an even stronger opening line
-2. Tells a brief narrative or sets up the problem
-3. Delivers 3-4 key insights (use numbered formatting)
-4. Ends with a takeaway and engagement question
-5. Includes relevant hashtags at the end
+Create a LinkedIn post (1200-1500 chars) with:
+1. Strong opening hook
+2. 3-4 key insights (numbered)
+3. Engagement question at the end
+4. Relevant hashtags
 
-Target length: 1200-1500 characters
+Write the LinkedIn post now. Do not include any explanations.`
 
-Write the LinkedIn post now. Do not include any explanations, just the post content.`
+    } else if (action === 'generate_engagement') {
+      systemPrompt = `You are an expert at creating engaging, community-focused social media posts that spark conversation and build audience connection.`
+
+      prompt = `Create a Monday engagement post for Twitter/X:
+
+THEME: ${topic}
+CONTEXT: ${hook}
+
+This is a "What are you excited about this week?" style post to kick off the week and get followers interacting.
+
+Create a post that:
+1. Opens with an engaging question or prompt
+2. Shares something the team is excited about
+3. Invites followers to share their own thoughts
+4. Uses a conversational, approachable tone
+5. Max 280 characters
+
+Write just the tweet, nothing else.`
+
+    } else if (action === 'generate_supporting') {
+      systemPrompt = `You are an expert at creating supporting Twitter content that expands on a main thesis while maintaining engagement.`
+
+      prompt = `Create a Wednesday supporting tweet that expands on Tuesday's thread:
+
+MAIN TOPIC: ${topic}
+ORIGINAL HOOK: ${hook}
+THREAD CONTENT SUMMARY:
+${content?.substring(0, 1000)}
+
+This tweet should:
+1. Reference the earlier thread subtly
+2. Add a new angle or insight
+3. Drive people back to the main content
+4. Encourage discussion
+5. Max 280 characters
+
+Write just the tweet, nothing else.`
+
+    } else if (action === 'generate_roundup') {
+      systemPrompt = `You are an expert at creating weekly roundup content that summarizes industry news and drives traffic to owned content.`
+
+      prompt = `Create a Friday weekly roundup thread:
+
+WEEK'S THEME: ${topic}
+OUR BLOG LINK: [Blog URL]
+CONTEXT: ${hook}
+
+Create a 4-5 tweet thread that:
+1. Opens with "This week in [industry]..." hook
+2. Highlights 3-4 key industry developments
+3. Ties it back to your perspective/thesis
+4. Ends with CTA to read the full blog
+5. Includes relevant hashtags
+
+Format as JSON array:
+["tweet 1", "tweet 2", ...]
+
+Only output the JSON array, nothing else.`
 
     } else if (action === 'score_virality') {
       systemPrompt = `You are an expert content strategist who evaluates content using the X "For You" feed algorithm scoring system.
 
 X ALGORITHM SCORING (from open-sourced Phoenix model):
-The Grok-based transformer predicts probabilities for multiple actions, then combines them:
-
 Final Score = Σ (weight × P(action))
 
 POSITIVE WEIGHT PREDICTIONS:
@@ -119,20 +185,14 @@ POSITIVE WEIGHT PREDICTIONS:
 ├── P(repost) — HIGH POSITIVE WEIGHT  
 ├── P(quote) — HIGH POSITIVE WEIGHT
 ├── P(favorite) — MEDIUM POSITIVE WEIGHT
-├── P(click) — MEDIUM POSITIVE WEIGHT
-├── P(dwell) — MEDIUM POSITIVE WEIGHT (time spent)
-├── P(follow_author) — MEDIUM POSITIVE WEIGHT
-└── P(share) — MEDIUM POSITIVE WEIGHT
+├── P(dwell) — MEDIUM POSITIVE WEIGHT
 
 NEGATIVE WEIGHT PREDICTIONS:
 ├── P(not_interested) — NEGATIVE WEIGHT
 ├── P(block_author) — HIGH NEGATIVE WEIGHT
-├── P(mute_author) — HIGH NEGATIVE WEIGHT
-└── P(report) — VERY HIGH NEGATIVE WEIGHT
+├── P(mute_author) — HIGH NEGATIVE WEIGHT`
 
-Content ranks HIGH when it maximizes positive action probabilities while minimizing negative ones.`
-
-      prompt = `Evaluate this content for X "For You" feed ranking potential:
+      prompt = `Evaluate this content for X "For You" feed ranking:
 
 TITLE: ${topic}
 HOOK: ${hook}
@@ -140,27 +200,18 @@ CHANNEL: ${channel}
 CONTENT:
 ${content?.substring(0, 3000)}
 
-Score each X algorithm prediction factor from 0-100:
+Score each factor from 0-100:
 
-POSITIVE FACTORS (these boost ranking):
-1. P(reply) - 20% weight: Will people NEED to respond? Controversial? Challenges beliefs?
-2. P(repost) - 18% weight: Is this valuable enough to share with followers?
-3. P(quote) - 12% weight: Does this invite people to add their own take?
-4. P(favorite) - 15% weight: Will people like this?
-5. P(dwell) - 10% weight: Will people spend time reading/thinking about this?
-6. P(follow) - 5% weight: Does this demonstrate expertise worth following?
+1. P(reply) - 20% weight
+2. P(repost) - 18% weight
+3. P(quote) - 12% weight
+4. P(favorite) - 15% weight
+5. P(dwell) - 10% weight
+6. P(follow) - 5% weight
+7. Relevance - 10% weight
+8. Non-annoying - 10% weight
 
-NEGATIVE FACTORS (these hurt ranking):
-7. P(not_interested) - INVERSE 10% weight: How relevant is this to target audience?
-8. P(block/mute) - INVERSE 10% weight: Is this annoying, spammy, or offensive?
-
-BE STRICT: 
-- 95+ = Genuinely viral potential (rare)
-- 80-94 = Strong engagement likely
-- 60-79 = Decent performance
-- Below 60 = Needs significant work
-
-Respond in this exact JSON format:
+Respond in JSON:
 {
   "scores": {
     "reply_probability": <0-100>,
@@ -169,69 +220,33 @@ Respond in this exact JSON format:
     "favorite_probability": <0-100>,
     "dwell_probability": <0-100>,
     "follow_probability": <0-100>,
-    "relevance": <0-100 - inverse of not_interested>,
-    "non_annoying": <0-100 - inverse of block/mute probability>
+    "relevance": <0-100>,
+    "non_annoying": <0-100>
   },
-  "overall": <weighted average as integer>,
-  "feedback": ["<specific actionable improvement 1>", "<specific actionable improvement 2>", "<specific actionable improvement 3>"],
-  "strengths": ["<strength 1>", "<strength 2>"]
+  "overall": <weighted average>,
+  "feedback": ["improvement 1", "improvement 2", "improvement 3"],
+  "strengths": ["strength 1", "strength 2"]
 }
 
-Only output the JSON, nothing else.`
+Only output JSON.`
 
     } else if (action === 'optimize_content') {
-      systemPrompt = `You are an expert content optimizer who rewrites content to achieve 95%+ scores on the X "For You" algorithm.
+      systemPrompt = `You are an expert content optimizer who rewrites content to achieve 95%+ scores on the X algorithm.`
 
-X ALGORITHM OPTIMIZATION (from open-sourced Phoenix model):
-To rank high, content must MAXIMIZE:
-- P(reply): Controversial takes, questions, challenges that demand responses
-- P(repost): Insights so valuable people must share them
-- P(quote): Room for others to add their take
-- P(favorite): Generally likeable/agreeable core message
-- P(dwell): Depth that requires time to process
-
-While MINIMIZING:
-- P(not_interested): Stay relevant to target audience
-- P(block/mute): Don't be annoying, spammy, or preachy
-- P(report): No policy violations
-
-KEY TACTICS:
-1. Open with a pattern interrupt (counterintuitive claim)
-2. Include at least one "hot take" that demands a reply
-3. Add specific numbers/data (increases credibility + shareability)
-4. Use rhetorical questions (increases dwell time)
-5. Leave room for disagreement (increases quote-tweets)
-6. End with a question or challenge (maximizes replies)`
-
-      prompt = `REWRITE this content to score 95%+ on the X algorithm:
+      prompt = `REWRITE this content to score 95%+:
 
 CURRENT SCORE: ${currentScore}%
-FEEDBACK TO ADDRESS:
+FEEDBACK:
 ${feedback?.join('\n- ')}
 
-ORIGINAL TOPIC: ${topic}
-ORIGINAL HOOK: ${hook}
-ORIGINAL CONTENT:
+TOPIC: ${topic}
+HOOK: ${hook}
+CONTENT:
 ${content}
 
-OPTIMIZATION REQUIREMENTS:
-1. MAXIMIZE P(reply): Add controversial takes, direct challenges, questions
-2. MAXIMIZE P(repost): Make insights concrete, actionable, and shareable
-3. MAXIMIZE P(quote): Leave gaps for readers to add their perspective
-4. MAXIMIZE P(dwell): Add depth, specifics, and thought-provoking angles
-5. MINIMIZE P(not_interested): Stay laser-focused on Web3/AI audience
-6. MINIMIZE P(block/mute): Avoid being preachy, repetitive, or annoying
+Optimize for P(reply), P(repost), P(quote) while maintaining quality.
 
-SPECIFIC TACTICS TO APPLY:
-- Open with a counterintuitive claim that challenges conventional wisdom
-- Include at least 2-3 "reply bait" moments (hot takes, challenges)
-- Add specific numbers, examples, or predictions
-- Use rhetorical questions that make readers pause
-- End sections with cliffhangers or provocative statements
-- Vary sentence length for better rhythm and dwell time
-
-Write the FULL optimized blog post now. Use markdown formatting with ## for headers.
-Target: 95%+ algorithm score.`
+Write the FULL optimized blog post with ## headers.`
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -258,7 +273,8 @@ Target: 95%+ algorithm score.`
     const data = await response.json()
     const generatedContent = data.content[0].text
 
-    if (action === 'generate_thread' || action === 'score_virality') {
+    // Parse JSON responses
+    if (action === 'process_braindump' || action === 'generate_thread' || action === 'generate_roundup' || action === 'score_virality') {
       try {
         let jsonStr = generatedContent
         if (jsonStr.includes('```')) {
